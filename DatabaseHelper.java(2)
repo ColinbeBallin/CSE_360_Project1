@@ -1,0 +1,171 @@
+package databasePart1;
+
+import java.sql.*;
+import java.util.UUID;
+import HW1.User;
+
+/**
+ * Handles database operations such as user authentication, account management, and invitation codes
+ */
+public class DatabaseHelper {
+
+    private static final String JDBC_DRIVER = "org.h2.Driver";
+    private static final String DB_URL = "jdbc:h2:~/FoundationDatabase";
+    private static final String DB_USER = "sa";
+    private static final String DB_PASSWORD = "";
+
+    private Connection connection;
+    private Statement statement;
+
+    /**
+     * Establishes connection to the database and initializes necessary tables
+     */
+    public void connectToDatabase() throws SQLException {
+        try {
+            Class.forName(JDBC_DRIVER);
+            System.out.println("Connecting to the database...");
+            connection = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+            statement = connection.createStatement();
+            createTables();
+        } catch (ClassNotFoundException e) {
+            System.err.println("Database driver not found: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Creates tables needed if they do not exist already
+     */
+    private void createTables() throws SQLException {
+        String userTableQuery = "CREATE TABLE IF NOT EXISTS Users ("
+                + "id INT AUTO_INCREMENT PRIMARY KEY, "
+                + "username VARCHAR(255) UNIQUE, "
+                + "password VARCHAR(255), "
+                + "role VARCHAR(50))";
+        statement.execute(userTableQuery);
+
+        String inviteTableQuery = "CREATE TABLE IF NOT EXISTS InvitationCodes ("
+                + "code VARCHAR(10) PRIMARY KEY, "
+                + "isUsed BOOLEAN DEFAULT FALSE)";
+        statement.execute(inviteTableQuery);
+    }
+
+    /**
+     * Checks to see if any users exist in the database
+     */
+    public boolean isDatabaseEmpty() throws SQLException {
+        String query = "SELECT COUNT(*) AS total FROM Users";
+        ResultSet resultSet = statement.executeQuery(query);
+        return resultSet.next() && resultSet.getInt("total") == 0;
+    }
+
+    /**
+     * Adds new user to the database
+     */
+    public void register(User user) throws SQLException {
+        String query = "INSERT INTO Users (username, password, role) VALUES (?, ?, ?)";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, user.getUsername());
+            pstmt.setString(2, user.getPassword());
+            pstmt.setString(3, user.getRole());
+            pstmt.executeUpdate();
+        }
+    }
+
+    /**
+     * Validates user login credentials
+     */
+    public boolean login(User user) throws SQLException {
+        String query = "SELECT * FROM Users WHERE username = ? AND password = ? AND role = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, user.getUsername());
+            pstmt.setString(2, user.getPassword());
+            pstmt.setString(3, user.getRole());
+            ResultSet resultSet = pstmt.executeQuery();
+            return resultSet.next();
+        }
+    }
+
+    /**
+     * Retrieves all user details for administrative purposes
+     */
+    public ResultSet listAllUsers() throws SQLException {
+        String query = "SELECT username, role FROM Users";
+        return statement.executeQuery(query);
+    }
+
+    /**
+     * Checks to see if a username has been taken already
+     */
+    public boolean doesUserExist(String username) throws SQLException {
+        String query = "SELECT COUNT(*) FROM Users WHERE username = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, username);
+            ResultSet resultSet = pstmt.executeQuery();
+            return resultSet.next() && resultSet.getInt(1) > 0;
+        }
+    }
+
+    /**
+     * Retrieves the role of a user based on what their username is 
+     */
+    public String getUserRole(String username) throws SQLException {
+        String query = "SELECT role FROM Users WHERE username = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, username);
+            ResultSet resultSet = pstmt.executeQuery();
+            return resultSet.next() ? resultSet.getString("role") : null;
+        }
+    }
+
+    /**
+     * Generates a new invitation code and stores it
+     */
+    public String generateInvitationCode() throws SQLException {
+        String code = UUID.randomUUID().toString().substring(0, 4);
+        String query = "INSERT INTO InvitationCodes (code) VALUES (?)";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, code);
+            pstmt.executeUpdate();
+        }
+        return code;
+    }
+
+    /**
+     * Validates and marks the invitation code that has been used
+     */
+    public boolean validateInvitationCode(String code) throws SQLException {
+        String query = "SELECT * FROM InvitationCodes WHERE code = ? AND isUsed = FALSE";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, code);
+            ResultSet resultSet = pstmt.executeQuery();
+            if (resultSet.next()) {
+                markInvitationCodeAsUsed(code);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Updates invitation code
+     */
+    private void markInvitationCodeAsUsed(String code) throws SQLException {
+        String query = "UPDATE InvitationCodes SET isUsed = TRUE WHERE code = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, code);
+            pstmt.executeUpdate();
+        }
+    }
+
+    /**
+     * Closes database connection
+     */
+    public void closeConnection() {
+        try {
+            if (statement != null) statement.close();
+            if (connection != null) connection.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+}
